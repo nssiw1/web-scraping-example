@@ -1,0 +1,106 @@
+import requests
+import xlsxwriter
+from bs4 import BeautifulSoup
+import time
+import sys
+import logging
+
+# 请求职位列表的url
+job_url = 'https://www.lagou.com/jobs/positionAjax.json?px=default&city={city}&needAddtionalResult=false&isSchoolJob={school}'
+
+# 根据传入的关键字获取搜索结果中的第一页页面
+first_page_url = 'https://www.lagou.com/jobs/list_{job}?isSchoolJob={school}&city={city}'
+
+HEADERS = {
+    'Host': 'www.lagou.com',
+    'Origin': 'https://www.lagou.com',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/66.0.3346.9 Safari/537.36',
+    'Referer': 'https://www.lagou.com/jobs/list_python'
+}
+
+
+def getJobs(job, city, school):
+    # 获取最大页数
+    # logging.info('Home Page:' + first_page_url.format(job=job, school=school, city=city))  # format格式填写请求url
+    print('Home Page ==> ' + first_page_url.format(job=job, school=school, city=city))
+    first_page = requests.get(url=first_page_url.format(job=job, school=school, city=city), headers=HEADERS)
+    html = first_page.text
+    obj = BeautifulSoup(html, 'lxml')
+    try:
+        max_page = int(obj.find('span', {'class': 'span totalNum'}).get_text())  # 提取页面中的总页码
+    except:
+        max_page = 0
+    jobs_info_list = list()
+    if max_page > 0:
+        for page_num in range(1, max_page + 1):
+            form_data = {'pn': page_num, 'kd': job}
+            res = requests.post(url=job_url.format(city=city, school=school), data=form_data, headers=HEADERS)
+            now_cookies = res.cookies
+            HEADERS.update(now_cookies)  # 更新HEADERS信息
+            result = res.json()
+            if result['success']:
+                jobs = result['content']['positionResult']['result']
+                time.sleep(1)  # 获取正常的情况下延时1s请求一次
+            else:
+                jobs = []
+                time.sleep(10)  # 出现异常时，间隔10s后再获取
+            print('Total:' + str(max_page) + '  Completed:' + str(page_num))
+            jobs_info_list.extend(jobs)
+    return jobs_info_list
+
+
+# 将数据写入工作表中
+def writeExcel(row=0, positionName='', area='', education='', salary='', companyFullName='', positionAdvantage='',
+               type=''):
+    if row == 0:
+        worksheet.write(row, 0, '公司名')
+        worksheet.write(row, 1, '薪资')
+        worksheet.write(row, 2, '地区')
+        worksheet.write(row, 3, '教育程度')
+        worksheet.write(row, 4, '公司全名')
+        worksheet.write(row, 5, '职位优势')
+        worksheet.write(row, 6, '工作类型')
+    else:
+        worksheet.write(row, 0, positionName)
+        worksheet.write(row, 1, salary)
+        worksheet.write(row, 2, area)
+        worksheet.write(row, 3, education)
+        worksheet.write(row, 4, companyFullName)
+        worksheet.write(row, 5, positionAdvantage)
+        worksheet.write(row, 6, type)
+
+
+def start(job, city, school):
+    cursor = 0
+    job_list = getJobs(job=job, city=city, school=school)
+    writeExcel(row=cursor)
+    for each_job in job_list:
+        # 需要写入Excel的职位信息条目
+        if each_job['positionName']:
+            cursor += 1
+            writeExcel(row=cursor, positionName=each_job['positionName'],
+                       companyFullName=each_job['companyFullName'], area=each_job['city'] + each_job['district'],
+                       education=each_job['education'], salary=each_job['salary'],
+                       positionAdvantage=each_job['positionAdvantage'],
+                       type=each_job['firstType'] + '-' + each_job['secondType'])
+
+
+if __name__ == '__main__':
+    job_city_school = sys.argv[1:]  # 接受程序外部传入的参数
+    try:
+        if job_city_school:
+            job = job_city_school[0]
+            city = job_city_school[1]
+            school = job_city_school[2]
+            # 创建一个excel表格
+            workbook = xlsxwriter.Workbook(job + '-' + city + '.xlsx')
+            # 为创建的excel表格添加一个工作表
+            worksheet = workbook.add_worksheet()
+            start(job, city, school)
+            workbook.close()
+            print('所有条目写入完成..')
+    except ValueError:
+        print('输入文本有误，请按照顺序 => 职位 城市 校招 ')
+————————————————
+版权声明：本文为CSDN博主「Leo-Woo」的原创文章，遵循 CC 4.0 BY-SA 版权协议，转载请附上原文出处链接及本声明。
+原文链接：https://blog.csdn.net/IMW_MG/article/details/78208055
